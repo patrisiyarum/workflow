@@ -44,6 +44,4 @@ services:
         destination: /index.html
     envVars:
       - key: VITE_API_URL
-        # Set this to your backend URL after first deploy, e.g.:
-        # https://surgphase-api.onrender.com
-        value: ""
+        value: "https://surgphase-api.onrender.com"
