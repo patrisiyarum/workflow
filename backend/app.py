@@ -7,6 +7,7 @@ Accepts image/video uploads and returns phase predictions with
 confidence scores and timeline data.
 """
 
+import gc
 import io
 import os
 import sys
@@ -18,11 +19,18 @@ from typing import List, Optional
 import cv2
 import numpy as np
 import torch
+import torch.nn.functional as F
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from PIL import Image
 from pydantic import BaseModel
+
+# ---- Memory optimisations for constrained environments ----
+torch.set_num_threads(1)
+torch.set_grad_enabled(False)
+os.environ.setdefault("OMP_NUM_THREADS", "1")
+os.environ.setdefault("MKL_NUM_THREADS", "1")
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -51,7 +59,7 @@ PHASE_DESCRIPTIONS = [
 ]
 
 NUM_CLASSES = len(PHASE_NAMES)
-DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+DEVICE = torch.device("cpu")  # Always CPU on free tier
 MODEL_LOADED = False
 model = None
 transform = None
@@ -137,11 +145,13 @@ def load_model():
         print(f"Loading checkpoint: {ckpt_path}")
         ckpt = torch.load(ckpt_path, map_location=DEVICE, weights_only=False)
         model.load_state_dict(ckpt["model_state_dict"])
+        del ckpt
     else:
         print("No checkpoint found — using pretrained backbone (demo mode).")
 
     transform = get_val_transforms(image_size=224)
     MODEL_LOADED = True
+    gc.collect()
     print("Model ready.")
 
 
@@ -159,10 +169,11 @@ def predict_image(image: Image.Image) -> dict:
     """Run inference on a single PIL image."""
     img_tensor = transform(image).unsqueeze(0).unsqueeze(0).to(DEVICE)  # (1,1,C,H,W)
 
-    with torch.no_grad():
+    with torch.inference_mode():
         logits, _ = model(img_tensor)
-        probs = torch.softmax(logits, dim=-1)[0].cpu().numpy()
+        probs = F.softmax(logits, dim=-1)[0].cpu().numpy()
 
+    del img_tensor, logits
     pred_id = int(np.argmax(probs))
 
     all_phases = []
@@ -186,7 +197,10 @@ def predict_video_frames(frames: List[Image.Image], fps: float) -> dict:
     seq_len = 5
     timeline = []
 
+    # Transform all frames up-front, then free PIL images
     tensors = [transform(f) for f in frames]
+    del frames
+    gc.collect()
 
     for i in range(len(tensors)):
         start = max(0, i - seq_len + 1)
@@ -196,10 +210,11 @@ def predict_video_frames(frames: List[Image.Image], fps: float) -> dict:
 
         batch = torch.stack(seq).unsqueeze(0).to(DEVICE)  # (1, T, C, H, W)
 
-        with torch.no_grad():
+        with torch.inference_mode():
             logits, _ = model(batch)
-            probs = torch.softmax(logits, dim=-1)[0].cpu().numpy()
+            probs = F.softmax(logits, dim=-1)[0].cpu().numpy()
 
+        del batch, logits
         pred_id = int(np.argmax(probs))
         timeline.append(TimelineEntry(
             frame_index=i,
@@ -209,6 +224,9 @@ def predict_video_frames(frames: List[Image.Image], fps: float) -> dict:
             confidence=round(float(probs[pred_id]), 4),
             color=PHASE_COLORS[pred_id],
         ))
+
+    del tensors
+    gc.collect()
 
     # Temporal smoothing
     if len(timeline) > 5:
@@ -281,12 +299,16 @@ async def predict_image_endpoint(file: UploadFile = File(...)):
     try:
         contents = await file.read()
         image = Image.open(io.BytesIO(contents)).convert("RGB")
+        del contents
     except Exception:
         raise HTTPException(400, "Invalid image file.")
 
     t0 = time.time()
     result = predict_image(image)
     elapsed = (time.time() - t0) * 1000
+
+    del image
+    gc.collect()
 
     return PredictionResponse(
         phase=result["phase"],
@@ -299,7 +321,7 @@ async def predict_image_endpoint(file: UploadFile = File(...)):
 async def predict_video_endpoint(
     file: UploadFile = File(...),
     sample_rate: int = 25,
-    max_frames: int = 200,
+    max_frames: int = 100,
 ):
     """Predict surgical phases from a video file."""
     if not MODEL_LOADED:
@@ -326,10 +348,18 @@ async def predict_video_endpoint(
                 break
             if idx % sample_rate == 0:
                 rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                frames.append(Image.fromarray(rgb))
+                # Downscale large frames immediately to save memory
+                pil_img = Image.fromarray(rgb)
+                if pil_img.width > 320 or pil_img.height > 320:
+                    pil_img.thumbnail((320, 320), Image.LANCZOS)
+                frames.append(pil_img)
+                del rgb
+            del frame
             idx += 1
 
         cap.release()
+        del cap
+        gc.collect()
 
         if not frames:
             raise HTTPException(400, "No frames extracted from video.")
@@ -338,10 +368,12 @@ async def predict_video_endpoint(
         result = predict_video_frames(frames, fps / sample_rate)
         elapsed = (time.time() - t0) * 1000
 
+        gc.collect()
+
         return VideoResponse(
             timeline=result["timeline"],
             summary=result["summary"],
-            total_frames=len(frames),
+            total_frames=len(result["timeline"]),
             inference_time_ms=round(elapsed, 1),
         )
     finally:
@@ -359,12 +391,15 @@ async def predict_batch_endpoint(files: List[UploadFile] = File(...)):
         try:
             contents = await f.read()
             images.append(Image.open(io.BytesIO(contents)).convert("RGB"))
+            del contents
         except Exception:
             raise HTTPException(400, f"Invalid image: {f.filename}")
 
     t0 = time.time()
     result = predict_video_frames(images, fps=1.0)
     elapsed = (time.time() - t0) * 1000
+
+    gc.collect()
 
     return {
         "timeline": [t.dict() for t in result["timeline"]],
