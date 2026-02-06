@@ -35,3 +35,11 @@ results/
 
 # Tensorboard
 events.out.tfevents.*
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+
+# Environment
+.env
+.env.local
