@@ -22,7 +22,7 @@ services:
       cd backend && uvicorn app:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: PYTHON_VERSION
-        value: "3.11"
+        value: "3.11.12"
       - key: MODEL_CHECKPOINT
         value: "checkpoints/best_model.pth"
     healthCheckPath: /api/health
