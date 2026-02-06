@@ -28,16 +28,28 @@ These map to the general surgical workflow: **Preparation** → **Incision/Activ
 
 ## Architecture
 
-Two model variants are provided:
+Three model variants are provided, including an implementation inspired by the state-of-the-art **PreViPS** framework ([arXiv:2502.13883](https://arxiv.org/abs/2502.13883)):
 
-### Single-View Model (ResNet + LSTM)
+### 1. Single-View Model (ResNet + LSTM)
 1. **ResNet-50** backbone (pretrained on ImageNet) extracts per-frame spatial features.
 2. **Multi-layer LSTM** processes frame sequences to capture temporal workflow patterns.
 
-### Multi-View Fusion Model
+### 2. Multi-View Fusion Model
 1. **Shared ResNet-50** backbone processes each camera view.
 2. **View Fusion** combines features from all 3 cameras (attention, concat, mean, or max pooling).
 3. **LSTM** models temporal dependencies across fused multi-view features.
+
+### 3. PreViPS: Video-Pose Dual-Encoder (arXiv:2502.13883)
+A CLIP-style calibration-free multi-view multi-modal framework:
+1. **Video Encoder** — ResNet-50 (or MViT-S) extracts global visual features per camera view.
+2. **Pose Tokenizer** — VQ-VAE converts continuous 2D keypoints into discrete Pose Compositional Tokens (PCT).
+3. **Pose Transformer** — Processes tokenized pose sequences with spatio-temporal positional embeddings.
+4. **Pretraining** — Aligns video and pose embeddings across camera views using:
+   - Cross-modality contrastive learning (video ↔ pose, CLIP-style InfoNCE)
+   - In-modality alignment (video ↔ video, pose ↔ pose across views)
+   - Cross-modal and in-modal geometric consistency regularizers
+   - Masked pose token prediction (MAE-style)
+5. **Finetuning** — Average-pools global tokens from all views/modalities → MLP classifier.
 
 ## Project Structure
 
@@ -45,7 +57,8 @@ Two model variants are provided:
 surgery-phase-detection/
 ├── configs/
 │   ├── default.yaml              # Single-view MVOR config
-│   └── mvor_multiview.yaml       # Multi-view fusion config
+│   ├── mvor_multiview.yaml       # Multi-view fusion config
+│   └── previps.yaml              # PreViPS pretraining config
 ├── surgery_phase_detection/
 │   ├── __init__.py
 │   ├── data/
@@ -56,13 +69,16 @@ surgery-phase-detection/
 │   ├── models/
 │   │   ├── resnet_lstm.py        # Single-view ResNet + LSTM
 │   │   ├── multiview_net.py      # Multi-view fusion model
+│   │   ├── previps.py            # PreViPS dual-encoder framework
+│   │   ├── pose_encoder.py       # Pose tokenizer + transformer
 │   │   └── feature_extractor.py  # Standalone feature extractor
 │   └── utils/
 │       ├── metrics.py            # Evaluation metrics (Jaccard, F1, etc.)
 │       └── visualization.py      # Confusion matrices, timelines, curves
 ├── scripts/
 │   ├── download_mvor.py          # Download and setup the MVOR dataset
-│   ├── train.py                  # Training script
+│   ├── pretrain.py               # PreViPS video-pose pretraining
+│   ├── train.py                  # Supervised training / finetuning
 │   ├── evaluate.py               # Evaluation script
 │   ├── predict.py                # Inference on new videos/images
 │   └── extract_frames.py         # Extract frames from video files
@@ -115,6 +131,10 @@ python scripts/train.py --config configs/default.yaml
 
 # Multi-view fusion model
 python scripts/train.py --config configs/mvor_multiview.yaml
+
+# PreViPS: pretrain video-pose alignment, then finetune
+python scripts/pretrain.py --config configs/previps.yaml
+python scripts/train.py --config configs/previps.yaml --resume checkpoints/pretrain_last.pth
 ```
 
 ### 4. Evaluate
@@ -190,8 +210,10 @@ The model is evaluated using:
 
 ## References
 
+- Hamoud, I., et al. "Multi-view Video-Pose Pretraining for Operating Room Surgical Activity Recognition." arXiv:2502.13883, 2025. [Paper](https://arxiv.org/abs/2502.13883) | [Code](https://github.com/CAMMA-public/PreViPS)
 - Srivastav, V., et al. "MVOR: A Multi-view RGB-D Operating Room Dataset for 2D and 3D Human Pose Estimation." MICCAI-LABELS, 2018. [arXiv:1808.08180](https://arxiv.org/abs/1808.08180)
 - Twinanda, A.P., et al. "EndoNet: A Deep Architecture for Recognition Tasks on Laparoscopic Videos." IEEE TMI, 2017.
+- Jiang, T., et al. "PCT: Pose as Compositional Tokens." arXiv:2303.17428, 2023.
 
 ## License
 
