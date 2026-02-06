@@ -14,24 +14,21 @@ import seaborn as sns
 
 
 PHASE_NAMES = [
+    "Idle/Empty",
     "Preparation",
-    "CalotTriangleDissection",
-    "ClippingCutting",
-    "GallbladderDissection",
-    "GallbladderPackaging",
-    "CleaningCoagulation",
-    "GallbladderRetraction",
+    "Procedure Active",
+    "Closure/Cleanup",
 ]
 
 # Color palette for surgical phases (colorblind-friendly)
 PHASE_COLORS = [
-    "#4C72B0",  # Preparation — blue
-    "#DD8452",  # CalotTriangleDissection — orange
-    "#55A868",  # ClippingCutting — green
-    "#C44E52",  # GallbladderDissection — red
-    "#8172B3",  # GallbladderPackaging — purple
-    "#937860",  # CleaningCoagulation — brown
-    "#DA8BC3",  # GallbladderRetraction — pink
+    "#95A5A6",  # Idle/Empty — grey
+    "#3498DB",  # Preparation — blue
+    "#E74C3C",  # Procedure Active — red
+    "#2ECC71",  # Closure/Cleanup — green
+    "#9B59B6",  # (extra) — purple
+    "#F39C12",  # (extra) — orange
+    "#1ABC9C",  # (extra) — teal
 ]
 
 

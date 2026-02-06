@@ -1,86 +1,76 @@
 # Surgery Phase Detection
 
-Automatic detection of surgical phases from video data using deep learning. This project analyzes surgery videos to identify what phase of a procedure is currently happening, enabling hospitals to analyze surgery efficiency, track workflow deviations, and improve training.
+Automatic detection of surgical phases from operating room video data using deep learning. This project analyzes multi-view OR camera feeds to identify what phase of a procedure is happening, enabling hospitals to analyze surgery efficiency, track workflow deviations, and improve training.
+
+## Dataset: MVOR
+
+This project uses the [MVOR (Multi-View Operating Room)](https://github.com/CAMMA-public/MVOR) dataset from CAMMA, University of Strasbourg. MVOR contains **732 synchronized multi-view frames** from **3 RGB-D cameras** recorded over **4 days** in a hybrid operating room during procedures such as vertebroplasty and lung biopsy.
+
+Key dataset features:
+- 2,196 images (732 per camera) across 4 recording days
+- 4,699 person bounding box annotations
+- 2,926 2D keypoint annotations (10 upper-body joints)
+- 1,061 3D keypoint annotations
+- Person role labels: **clinician** and **patient**
 
 ## Phases Detected
 
-The model recognizes **7 surgical phases** from the Cholec80 dataset:
+Since MVOR does not include explicit surgical phase labels, we derive **OR activity phases** from scene context — the number and roles of people present, their poses, and temporal position:
 
-| Phase ID | Phase Name |
-|----------|------------|
-| 0 | Preparation |
-| 1 | CalotTriangleDissection |
-| 2 | ClippingCutting |
-| 3 | GallbladderDissection |
-| 4 | GallbladderPackaging |
-| 5 | CleaningCoagulation |
-| 6 | GallbladderRetraction |
+| Phase ID | Phase Name       | Description |
+|----------|------------------|-------------|
+| 0 | Idle/Empty        | No people or minimal background activity |
+| 1 | Preparation       | Patient positioned, clinicians arriving |
+| 2 | Procedure Active  | Multiple clinicians actively engaged |
+| 3 | Closure/Cleanup   | Activity winding down, clinicians departing |
+
+These map to the general surgical workflow: **Preparation** → **Incision/Active Procedure** → **Suturing/Closure**.
 
 ## Architecture
 
-The model uses a two-stage architecture:
+Two model variants are provided:
 
-1. **Spatial Feature Extraction** — A ResNet-50 backbone (pretrained on ImageNet) extracts per-frame visual features.
-2. **Temporal Modeling** — A multi-layer LSTM processes sequences of frame features to capture temporal context across the surgical workflow.
+### Single-View Model (ResNet + LSTM)
+1. **ResNet-50** backbone (pretrained on ImageNet) extracts per-frame spatial features.
+2. **Multi-layer LSTM** processes frame sequences to capture temporal workflow patterns.
 
-This combination allows the model to leverage both the visual appearance of each frame and the sequential nature of surgical procedures.
+### Multi-View Fusion Model
+1. **Shared ResNet-50** backbone processes each camera view.
+2. **View Fusion** combines features from all 3 cameras (attention, concat, mean, or max pooling).
+3. **LSTM** models temporal dependencies across fused multi-view features.
 
 ## Project Structure
 
 ```
 surgery-phase-detection/
 ├── configs/
-│   └── default.yaml            # Training and model configuration
+│   ├── default.yaml              # Single-view MVOR config
+│   └── mvor_multiview.yaml       # Multi-view fusion config
 ├── surgery_phase_detection/
 │   ├── __init__.py
 │   ├── data/
-│   │   ├── __init__.py
-│   │   ├── dataset.py          # Cholec80 dataset loader
-│   │   └── transforms.py       # Data augmentation and preprocessing
+│   │   ├── dataset.py            # Cholec80 dataset loader (alternative)
+│   │   ├── mvor_dataset.py       # MVOR dataset loaders
+│   │   ├── phase_labeler.py      # Derive phase labels from MVOR annotations
+│   │   └── transforms.py         # Data augmentation and preprocessing
 │   ├── models/
-│   │   ├── __init__.py
-│   │   ├── resnet_lstm.py      # ResNet + LSTM model
-│   │   └── feature_extractor.py# Standalone feature extractor
+│   │   ├── resnet_lstm.py        # Single-view ResNet + LSTM
+│   │   ├── multiview_net.py      # Multi-view fusion model
+│   │   └── feature_extractor.py  # Standalone feature extractor
 │   └── utils/
-│       ├── __init__.py
-│       ├── metrics.py          # Evaluation metrics
-│       └── visualization.py    # Plotting and visualization tools
+│       ├── metrics.py            # Evaluation metrics (Jaccard, F1, etc.)
+│       └── visualization.py      # Confusion matrices, timelines, curves
 ├── scripts/
-│   ├── train.py                # Training script
-│   ├── evaluate.py             # Evaluation script
-│   ├── predict.py              # Inference on new videos
-│   └── extract_frames.py       # Extract frames from videos
+│   ├── download_mvor.py          # Download and setup the MVOR dataset
+│   ├── train.py                  # Training script
+│   ├── evaluate.py               # Evaluation script
+│   ├── predict.py                # Inference on new videos/images
+│   └── extract_frames.py         # Extract frames from video files
 ├── notebooks/
-│   └── exploration.ipynb       # Data exploration notebook
+│   └── exploration.ipynb         # Data exploration notebook
 ├── requirements.txt
 └── README.md
 ```
-
-## Dataset: Cholec80
-
-The [Cholec80 dataset](http://camma.u-strasbg.fr/datasets) contains 80 cholecystectomy surgery videos annotated with phase labels at 25 fps.
-
-### Expected Data Layout
-
-```
-data/
-├── videos/
-│   ├── video01.mp4
-│   ├── video02.mp4
-│   └── ...
-├── phase_annotations/
-│   ├── video01-phase.txt
-│   ├── video02-phase.txt
-│   └── ...
-└── frames/                   # Generated by extract_frames.py
-    ├── video01/
-    │   ├── frame_000000.jpg
-    │   ├── frame_000025.jpg
-    │   └── ...
-    └── ...
-```
-
-Phase annotation files are tab-separated with columns: `Frame` and `Phase`.
 
 ## Quick Start
 
@@ -90,19 +80,41 @@ Phase annotation files are tab-separated with columns: `Frame` and `Phase`.
 pip install -r requirements.txt
 ```
 
-### 2. Extract Frames from Videos
+### 2. Download the MVOR Dataset
 
 ```bash
-python scripts/extract_frames.py \
-    --video_dir data/videos \
-    --output_dir data/frames \
-    --sample_rate 25
+# Full dataset (images + annotations, ~2 GB)
+python scripts/download_mvor.py --output_dir data/mvor
+
+# Annotations only (for development without images)
+python scripts/download_mvor.py --output_dir data/mvor --annotations_only
+```
+
+This downloads the dataset from [CAMMA's S3 server](https://s3.unistra.fr/camma_public/datasets/mvor/camma_mvor_dataset.zip) and sets up the expected directory structure:
+
+```
+data/mvor/
+├── annotations/
+│   └── camma_mvor_2018.json
+├── camma_mvor_dataset/
+│   ├── day1/
+│   │   ├── cam1/color/
+│   │   ├── cam2/color/
+│   │   └── cam3/color/
+│   ├── day2/
+│   ├── day3/
+│   └── day4/
+└── MVOR/                       # Cloned repo with eval scripts
 ```
 
 ### 3. Train the Model
 
 ```bash
+# Single-view model (default)
 python scripts/train.py --config configs/default.yaml
+
+# Multi-view fusion model
+python scripts/train.py --config configs/mvor_multiview.yaml
 ```
 
 ### 4. Evaluate
@@ -110,32 +122,56 @@ python scripts/train.py --config configs/default.yaml
 ```bash
 python scripts/evaluate.py \
     --config configs/default.yaml \
-    --checkpoint checkpoints/best_model.pth
+    --checkpoint checkpoints/best_model.pth \
+    --output_dir results/
 ```
 
-### 5. Run Inference on a New Video
+### 5. Run Inference
 
 ```bash
+# On a directory of OR images
 python scripts/predict.py \
-    --video_path path/to/surgery_video.mp4 \
+    --frames_dir path/to/or_images/ \
+    --checkpoint checkpoints/best_model.pth \
+    --visualize
+
+# On a video file
+python scripts/predict.py \
+    --video_path path/to/or_video.mp4 \
     --checkpoint checkpoints/best_model.pth \
     --output_path results/prediction.json
 ```
 
 ## Configuration
 
-All hyperparameters are defined in `configs/default.yaml`. Key settings:
+Key settings in `configs/default.yaml`:
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
+| `dataset.name` | mvor | Dataset to use (mvor or cholec80) |
+| `dataset.train_days` | [2, 3] | MVOR recording days for training |
+| `dataset.val_days` | [4] | MVOR recording days for validation |
+| `dataset.test_days` | [1] | MVOR recording days for testing |
+| `model.type` | single_view | Model type (single_view or multi_view) |
 | `model.backbone` | resnet50 | CNN backbone architecture |
 | `model.lstm_hidden` | 512 | LSTM hidden dimension |
-| `model.lstm_layers` | 2 | Number of LSTM layers |
-| `model.sequence_length` | 10 | Frames per temporal sequence |
-| `training.batch_size` | 8 | Training batch size |
+| `model.sequence_length` | 5 | Frames per temporal sequence |
+| `model.fusion` | attention | Multi-view fusion strategy |
+| `training.batch_size` | 4 | Training batch size |
 | `training.learning_rate` | 1e-4 | Initial learning rate |
-| `training.epochs` | 50 | Maximum training epochs |
-| `training.early_stopping` | 10 | Patience for early stopping |
+| `training.epochs` | 30 | Maximum training epochs |
+
+## Phase Labeling Strategy
+
+The `MVORPhaseLabeler` derives phase labels from MVOR scene annotations using:
+
+1. **Scene occupancy**: Number of people detected in the multi-view frame
+2. **Person roles**: Whether clinicians and/or patients are present
+3. **Temporal position**: Where the frame falls within the day's timeline
+4. **Spatial features**: Bounding box areas and keypoint patterns
+5. **Temporal smoothing**: Majority-vote sliding window to reduce noise
+
+The labeling rules follow the observation that surgical workflow phases correlate strongly with OR occupancy patterns (who is in the room and when).
 
 ## Metrics
 
@@ -143,20 +179,20 @@ The model is evaluated using:
 
 - **Accuracy** — Overall frame-level accuracy
 - **Precision / Recall / F1** — Per-phase and macro-averaged
-- **Jaccard Index** — Intersection over union per phase (standard for Cholec80)
-- **Confusion Matrix** — Visualized phase-level confusion
+- **Jaccard Index** — Intersection over union per phase
+- **Confusion Matrix** — Phase-level confusion visualization
 
 ## Requirements
 
 - Python >= 3.9
 - PyTorch >= 2.0
-- CUDA-capable GPU recommended (training on CPU is possible but slow)
-
-## License
-
-This project is for research and educational purposes. The Cholec80 dataset has its own license — please refer to the [official dataset page](http://camma.u-strasbg.fr/datasets) for usage terms.
+- CUDA-capable GPU recommended
 
 ## References
 
+- Srivastav, V., et al. "MVOR: A Multi-view RGB-D Operating Room Dataset for 2D and 3D Human Pose Estimation." MICCAI-LABELS, 2018. [arXiv:1808.08180](https://arxiv.org/abs/1808.08180)
 - Twinanda, A.P., et al. "EndoNet: A Deep Architecture for Recognition Tasks on Laparoscopic Videos." IEEE TMI, 2017.
-- Czempiel, T., et al. "TeCNO: Surgical Phase Recognition with Multi-Stage Temporal Convolutional Networks." MICCAI, 2020.
+
+## License
+
+This project is for research and educational purposes. The MVOR dataset is released under [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/). Please refer to the [MVOR repository](https://github.com/CAMMA-public/MVOR) for full dataset terms.

@@ -20,13 +20,10 @@ from sklearn.metrics import (
 
 
 PHASE_NAMES = [
+    "Idle/Empty",
     "Preparation",
-    "CalotTriangleDissection",
-    "ClippingCutting",
-    "GallbladderDissection",
-    "GallbladderPackaging",
-    "CleaningCoagulation",
-    "GallbladderRetraction",
+    "Procedure Active",
+    "Closure/Cleanup",
 ]
 
 

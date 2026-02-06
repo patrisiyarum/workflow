@@ -3,10 +3,17 @@
 Training Script for Surgery Phase Detection
 =============================================
 
-Trains the ResNet + LSTM model on the Cholec80 dataset.
+Trains a model on the MVOR or Cholec80 dataset for surgical phase detection.
+Supports both single-view (ResNet+LSTM) and multi-view fusion architectures.
 
 Usage:
+    # Single-view on MVOR (default)
     python scripts/train.py --config configs/default.yaml
+
+    # Multi-view on MVOR
+    python scripts/train.py --config configs/mvor_multiview.yaml
+
+    # Resume training
     python scripts/train.py --config configs/default.yaml --resume checkpoints/last.pth
 """
 
@@ -29,48 +36,41 @@ from tqdm import tqdm
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from surgery_phase_detection.data.dataset import Cholec80SequenceDataset
 from surgery_phase_detection.data.transforms import get_train_transforms, get_val_transforms
-from surgery_phase_detection.models.resnet_lstm import SurgeryPhaseNet
+from surgery_phase_detection.data.phase_labeler import MVORPhaseLabeler
 from surgery_phase_detection.utils.metrics import compute_metrics, print_metrics_report
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Train Surgery Phase Detection Model")
-    parser.add_argument(
-        "--config",
-        type=str,
-        default="configs/default.yaml",
-        help="Path to configuration YAML file.",
-    )
-    parser.add_argument(
-        "--resume",
-        type=str,
-        default=None,
-        help="Path to checkpoint to resume training from.",
-    )
-    parser.add_argument(
-        "--gpu",
-        type=int,
-        default=0,
-        help="GPU device index.",
-    )
+    parser.add_argument("--config", type=str, default="configs/default.yaml")
+    parser.add_argument("--resume", type=str, default=None)
+    parser.add_argument("--gpu", type=int, default=0)
     return parser.parse_args()
 
 
 def load_config(config_path: str) -> dict:
-    """Load YAML configuration file."""
     with open(config_path) as f:
-        config = yaml.safe_load(f)
-    return config
+        return yaml.safe_load(f)
 
 
-def build_dataloaders(config: dict) -> tuple:
+def build_phase_labeler(config: dict) -> MVORPhaseLabeler:
+    """Create the MVOR phase labeler from config."""
+    pl_cfg = config.get("phase_labeler", {})
+    return MVORPhaseLabeler(
+        num_clinician_threshold=pl_cfg.get("num_clinician_threshold", 2),
+        temporal_smooth_window=pl_cfg.get("temporal_smooth_window", 3),
+        use_temporal_context=pl_cfg.get("use_temporal_context", True),
+    )
+
+
+def build_dataloaders(config: dict):
     """Create training and validation data loaders."""
     dataset_cfg = config["dataset"]
     preprocess_cfg = config["preprocessing"]
     augment_cfg = config.get("augmentation", {})
     train_cfg = config["training"]
+    model_cfg = config["model"]
 
     train_transform = get_train_transforms(
         image_size=preprocess_cfg["image_size"],
@@ -90,31 +90,59 @@ def build_dataloaders(config: dict) -> tuple:
         std=preprocess_cfg["std"],
     )
 
-    model_cfg = config["model"]
+    phase_labeler = build_phase_labeler(config)
 
-    train_dataset = Cholec80SequenceDataset(
-        frames_dir=dataset_cfg["frames_dir"],
-        annotations_dir=dataset_cfg["annotations_dir"],
-        video_ids=dataset_cfg["train_videos"],
-        sequence_length=model_cfg["sequence_length"],
-        transform=train_transform,
-        sample_rate=dataset_cfg.get("sample_rate", 25),
-    )
+    if dataset_cfg["name"] == "mvor":
+        from surgery_phase_detection.data.mvor_dataset import (
+            MVORSequenceDataset,
+        )
 
-    val_dataset = Cholec80SequenceDataset(
-        frames_dir=dataset_cfg["frames_dir"],
-        annotations_dir=dataset_cfg["annotations_dir"],
-        video_ids=dataset_cfg["val_videos"],
-        sequence_length=model_cfg["sequence_length"],
-        transform=val_transform,
-        sample_rate=dataset_cfg.get("sample_rate", 25),
-    )
+        train_dataset = MVORSequenceDataset(
+            data_root=dataset_cfg["data_root"],
+            annotation_path=dataset_cfg["annotation_path"],
+            sequence_length=model_cfg["sequence_length"],
+            camera_id=dataset_cfg.get("primary_camera", 1),
+            day_ids=dataset_cfg.get("train_days", [2, 3]),
+            transform=train_transform,
+            phase_labeler=phase_labeler,
+        )
+
+        val_dataset = MVORSequenceDataset(
+            data_root=dataset_cfg["data_root"],
+            annotation_path=dataset_cfg["annotation_path"],
+            sequence_length=model_cfg["sequence_length"],
+            camera_id=dataset_cfg.get("primary_camera", 1),
+            day_ids=dataset_cfg.get("val_days", [4]),
+            transform=val_transform,
+            phase_labeler=phase_labeler,
+        )
+    else:
+        # Cholec80 fallback
+        from surgery_phase_detection.data.dataset import Cholec80SequenceDataset
+
+        train_dataset = Cholec80SequenceDataset(
+            frames_dir=dataset_cfg["frames_dir"],
+            annotations_dir=dataset_cfg["annotations_dir"],
+            video_ids=dataset_cfg["train_videos"],
+            sequence_length=model_cfg["sequence_length"],
+            transform=train_transform,
+            sample_rate=dataset_cfg.get("sample_rate", 25),
+        )
+
+        val_dataset = Cholec80SequenceDataset(
+            frames_dir=dataset_cfg["frames_dir"],
+            annotations_dir=dataset_cfg["annotations_dir"],
+            video_ids=dataset_cfg["val_videos"],
+            sequence_length=model_cfg["sequence_length"],
+            transform=val_transform,
+            sample_rate=dataset_cfg.get("sample_rate", 25),
+        )
 
     train_loader = DataLoader(
         train_dataset,
         batch_size=train_cfg["batch_size"],
         shuffle=True,
-        num_workers=train_cfg.get("num_workers", 4),
+        num_workers=train_cfg.get("num_workers", 2),
         pin_memory=train_cfg.get("pin_memory", True),
         drop_last=True,
     )
@@ -123,34 +151,51 @@ def build_dataloaders(config: dict) -> tuple:
         val_dataset,
         batch_size=train_cfg["batch_size"],
         shuffle=False,
-        num_workers=train_cfg.get("num_workers", 4),
+        num_workers=train_cfg.get("num_workers", 2),
         pin_memory=train_cfg.get("pin_memory", True),
     )
 
     return train_loader, val_loader, train_dataset, val_dataset
 
 
-def build_model(config: dict) -> SurgeryPhaseNet:
+def build_model(config: dict) -> nn.Module:
     """Build the model from configuration."""
     model_cfg = config["model"]
     dataset_cfg = config["dataset"]
+    model_type = model_cfg.get("type", "single_view")
 
-    model = SurgeryPhaseNet(
-        num_classes=dataset_cfg["num_classes"],
-        backbone=model_cfg["backbone"],
-        pretrained=model_cfg.get("pretrained", True),
-        lstm_hidden=model_cfg["lstm_hidden"],
-        lstm_layers=model_cfg["lstm_layers"],
-        dropout=model_cfg.get("dropout", 0.3),
-        bidirectional=model_cfg.get("bidirectional", False),
-        freeze_backbone=True,  # Start with frozen CNN
-    )
+    if model_type == "multi_view":
+        from surgery_phase_detection.models.multiview_net import MultiViewSurgeryNet
+
+        model = MultiViewSurgeryNet(
+            num_classes=dataset_cfg["num_classes"],
+            backbone=model_cfg["backbone"],
+            pretrained=model_cfg.get("pretrained", True),
+            num_views=model_cfg.get("num_views", 3),
+            fusion=model_cfg.get("fusion", "attention"),
+            lstm_hidden=model_cfg["lstm_hidden"],
+            lstm_layers=model_cfg["lstm_layers"],
+            dropout=model_cfg.get("dropout", 0.3),
+            freeze_backbone=True,
+        )
+    else:
+        from surgery_phase_detection.models.resnet_lstm import SurgeryPhaseNet
+
+        model = SurgeryPhaseNet(
+            num_classes=dataset_cfg["num_classes"],
+            backbone=model_cfg["backbone"],
+            pretrained=model_cfg.get("pretrained", True),
+            lstm_hidden=model_cfg["lstm_hidden"],
+            lstm_layers=model_cfg["lstm_layers"],
+            dropout=model_cfg.get("dropout", 0.3),
+            bidirectional=model_cfg.get("bidirectional", False),
+            freeze_backbone=True,
+        )
 
     return model
 
 
 def build_optimizer_and_scheduler(model: nn.Module, config: dict):
-    """Build optimizer and learning rate scheduler."""
     train_cfg = config["training"]
 
     optimizer = Adam(
@@ -174,12 +219,7 @@ def build_optimizer_and_scheduler(model: nn.Module, config: dict):
             gamma=scheduler_params.get("gamma", 0.1),
         )
     elif scheduler_name == "plateau":
-        scheduler = ReduceLROnPlateau(
-            optimizer,
-            mode="min",
-            factor=scheduler_params.get("gamma", 0.1),
-            patience=5,
-        )
+        scheduler = ReduceLROnPlateau(optimizer, mode="min", factor=0.1, patience=5)
     else:
         scheduler = None
 
@@ -187,28 +227,12 @@ def build_optimizer_and_scheduler(model: nn.Module, config: dict):
 
 
 def train_one_epoch(
-    model: nn.Module,
-    loader: DataLoader,
-    criterion: nn.Module,
-    optimizer: torch.optim.Optimizer,
-    device: torch.device,
-    scaler: torch.amp.GradScaler,
-    use_amp: bool,
-    gradient_clip: float = 1.0,
-    log_every: int = 50,
-) -> dict:
-    """Train the model for one epoch.
-
-    Returns:
-        Dictionary with training metrics for this epoch.
-    """
+    model, loader, criterion, optimizer, device, scaler, use_amp,
+    gradient_clip=1.0, log_every=20,
+):
     model.train()
-
-    total_loss = 0.0
-    total_correct = 0
-    total_samples = 0
-    all_preds = []
-    all_labels = []
+    total_loss, total_correct, total_samples = 0.0, 0, 0
+    all_preds, all_labels = [], []
 
     for batch_idx, (sequences, labels) in enumerate(tqdm(loader, desc="Training")):
         sequences = sequences.to(device, non_blocking=True)
@@ -233,54 +257,33 @@ def train_one_epoch(
                 nn.utils.clip_grad_norm_(model.parameters(), gradient_clip)
             optimizer.step()
 
-        # Track metrics
         preds = logits.argmax(dim=-1)
         total_loss += loss.item() * labels.size(0)
         total_correct += (preds == labels).sum().item()
         total_samples += labels.size(0)
-
         all_preds.extend(preds.cpu().numpy())
         all_labels.extend(labels.cpu().numpy())
 
         if (batch_idx + 1) % log_every == 0:
-            running_loss = total_loss / total_samples
-            running_acc = total_correct / total_samples
             print(
                 f"  Batch {batch_idx + 1}/{len(loader)} — "
-                f"Loss: {running_loss:.4f}, Acc: {running_acc:.4f}"
+                f"Loss: {total_loss / total_samples:.4f}, "
+                f"Acc: {total_correct / total_samples:.4f}"
             )
 
-    epoch_loss = total_loss / total_samples
-    epoch_acc = total_correct / total_samples
-
     return {
-        "loss": epoch_loss,
-        "accuracy": epoch_acc,
+        "loss": total_loss / total_samples,
+        "accuracy": total_correct / total_samples,
         "predictions": np.array(all_preds),
         "labels": np.array(all_labels),
     }
 
 
 @torch.no_grad()
-def validate(
-    model: nn.Module,
-    loader: DataLoader,
-    criterion: nn.Module,
-    device: torch.device,
-    num_classes: int = 7,
-) -> dict:
-    """Validate the model on the validation set.
-
-    Returns:
-        Dictionary with validation metrics.
-    """
+def validate(model, loader, criterion, device, num_classes=4):
     model.eval()
-
-    total_loss = 0.0
-    total_correct = 0
-    total_samples = 0
-    all_preds = []
-    all_labels = []
+    total_loss, total_correct, total_samples = 0.0, 0, 0
+    all_preds, all_labels = [], []
 
     for sequences, labels in tqdm(loader, desc="Validating"):
         sequences = sequences.to(device, non_blocking=True)
@@ -293,68 +296,51 @@ def validate(
         total_loss += loss.item() * labels.size(0)
         total_correct += (preds == labels).sum().item()
         total_samples += labels.size(0)
-
         all_preds.extend(preds.cpu().numpy())
         all_labels.extend(labels.cpu().numpy())
 
-    epoch_loss = total_loss / total_samples
-    epoch_acc = total_correct / total_samples
-
-    # Compute full metrics
     all_preds = np.array(all_preds)
     all_labels = np.array(all_labels)
     metrics = compute_metrics(all_labels, all_preds, num_classes=num_classes)
 
     return {
-        "loss": epoch_loss,
-        "accuracy": epoch_acc,
+        "loss": total_loss / total_samples,
+        "accuracy": total_correct / total_samples,
         "metrics": metrics,
         "predictions": all_preds,
         "labels": all_labels,
     }
 
 
-def save_checkpoint(
-    model: nn.Module,
-    optimizer: torch.optim.Optimizer,
-    scheduler,
-    epoch: int,
-    best_metric: float,
-    config: dict,
-    path: str,
-) -> None:
-    """Save a training checkpoint."""
-    checkpoint = {
+def save_checkpoint(model, optimizer, scheduler, epoch, best_metric, config, path):
+    torch.save({
         "epoch": epoch,
         "model_state_dict": model.state_dict(),
         "optimizer_state_dict": optimizer.state_dict(),
         "scheduler_state_dict": scheduler.state_dict() if scheduler else None,
         "best_metric": best_metric,
         "config": config,
-    }
-    torch.save(checkpoint, path)
+    }, path)
 
 
 def main():
     args = parse_args()
     config = load_config(args.config)
 
-    # Setup device
     device = torch.device(
         f"cuda:{args.gpu}" if torch.cuda.is_available() else "cpu"
     )
     print(f"Using device: {device}")
 
-    # Setup directories
     log_cfg = config["logging"]
     os.makedirs(log_cfg["checkpoint_dir"], exist_ok=True)
     os.makedirs(log_cfg["log_dir"], exist_ok=True)
 
-    # Build data loaders
+    # Data
     print("\n--- Loading Data ---")
     train_loader, val_loader, train_dataset, val_dataset = build_dataloaders(config)
 
-    # Build model
+    # Model
     print("\n--- Building Model ---")
     model = build_model(config)
     model = model.to(device)
@@ -364,7 +350,7 @@ def main():
     print(f"Total parameters: {total_params:,}")
     print(f"Trainable parameters: {trainable_params:,}")
 
-    # Loss function with optional class weighting
+    # Loss
     train_cfg = config["training"]
     dataset_cfg = config["dataset"]
 
@@ -378,27 +364,24 @@ def main():
 
     criterion = nn.CrossEntropyLoss(weight=class_weights)
 
-    # Optimizer and scheduler
     optimizer, scheduler = build_optimizer_and_scheduler(model, config)
 
-    # Mixed precision
     use_amp = train_cfg.get("mixed_precision", True) and device.type == "cuda"
     scaler = torch.amp.GradScaler(enabled=use_amp)
 
-    # Tensorboard
     writer = None
     if log_cfg.get("tensorboard", True):
         writer = SummaryWriter(
             log_dir=os.path.join(log_cfg["log_dir"], log_cfg.get("experiment_name", "default"))
         )
 
-    # Resume from checkpoint
+    # Resume
     start_epoch = 0
     best_metric = 0.0
 
     if args.resume:
         print(f"\nResuming from: {args.resume}")
-        checkpoint = torch.load(args.resume, map_location=device)
+        checkpoint = torch.load(args.resume, map_location=device, weights_only=False)
         model.load_state_dict(checkpoint["model_state_dict"])
         optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
         if checkpoint.get("scheduler_state_dict") and scheduler:
@@ -409,8 +392,8 @@ def main():
 
     # Training loop
     print("\n--- Training ---")
-    freeze_epochs = config["model"].get("freeze_backbone_epochs", 5)
-    patience = train_cfg.get("early_stopping_patience", 10)
+    freeze_epochs = config["model"].get("freeze_backbone_epochs", 3)
+    patience = train_cfg.get("early_stopping_patience", 8)
     patience_counter = 0
 
     for epoch in range(start_epoch, train_cfg["epochs"]):
@@ -419,49 +402,41 @@ def main():
         print(f"Epoch {epoch + 1}/{train_cfg['epochs']}")
         print(f"{'='*60}")
 
-        # Unfreeze backbone after warmup period
+        # Unfreeze backbone
         if epoch == freeze_epochs:
             print("Unfreezing CNN backbone...")
-            model.unfreeze_cnn()
-            # Rebuild optimizer to include all parameters
+            if hasattr(model, "unfreeze_cnn"):
+                model.unfreeze_cnn()
             optimizer, scheduler = build_optimizer_and_scheduler(model, config)
 
         # Train
         train_results = train_one_epoch(
-            model=model,
-            loader=train_loader,
-            criterion=criterion,
-            optimizer=optimizer,
-            device=device,
-            scaler=scaler,
-            use_amp=use_amp,
+            model, train_loader, criterion, optimizer, device,
+            scaler, use_amp,
             gradient_clip=train_cfg.get("gradient_clip", 1.0),
-            log_every=log_cfg.get("log_every", 50),
+            log_every=log_cfg.get("log_every", 20),
         )
 
         # Validate
         val_results = validate(
-            model=model,
-            loader=val_loader,
-            criterion=criterion,
-            device=device,
+            model, val_loader, criterion, device,
             num_classes=dataset_cfg["num_classes"],
         )
 
-        # Update scheduler
+        # Scheduler
         if scheduler:
             if isinstance(scheduler, ReduceLROnPlateau):
                 scheduler.step(val_results["loss"])
             else:
                 scheduler.step()
 
-        # Logging
         epoch_time = time.time() - epoch_start
         current_lr = optimizer.param_groups[0]["lr"]
 
         print(f"\n  Train Loss: {train_results['loss']:.4f} | Train Acc: {train_results['accuracy']:.4f}")
         print(f"  Val Loss:   {val_results['loss']:.4f} | Val Acc:   {val_results['accuracy']:.4f}")
-        print(f"  Val Jaccard: {val_results['metrics']['mean_jaccard']:.4f}")
+        print(f"  Val F1: {val_results['metrics']['macro_f1']:.4f} | "
+              f"Val Jaccard: {val_results['metrics']['mean_jaccard']:.4f}")
         print(f"  LR: {current_lr:.6f} | Time: {epoch_time:.1f}s")
 
         if writer:
@@ -469,11 +444,12 @@ def main():
             writer.add_scalar("Loss/val", val_results["loss"], epoch)
             writer.add_scalar("Accuracy/train", train_results["accuracy"], epoch)
             writer.add_scalar("Accuracy/val", val_results["accuracy"], epoch)
+            writer.add_scalar("F1/val", val_results["metrics"]["macro_f1"], epoch)
             writer.add_scalar("Jaccard/val", val_results["metrics"]["mean_jaccard"], epoch)
             writer.add_scalar("LR", current_lr, epoch)
 
-        # Check for improvement (using mean Jaccard as primary metric)
-        current_metric = val_results["metrics"]["mean_jaccard"]
+        # Best model check
+        current_metric = val_results["metrics"]["macro_f1"]
 
         if current_metric > best_metric:
             best_metric = current_metric
@@ -482,50 +458,48 @@ def main():
                 model, optimizer, scheduler, epoch, best_metric, config,
                 os.path.join(log_cfg["checkpoint_dir"], "best_model.pth"),
             )
-            print(f"  ** New best model! Jaccard: {best_metric:.4f} **")
+            print(f"  ** New best model! F1: {best_metric:.4f} **")
         else:
             patience_counter += 1
             print(f"  No improvement. Patience: {patience_counter}/{patience}")
 
-        # Save periodic checkpoint
+        # Periodic checkpoint
         if (epoch + 1) % log_cfg.get("save_every", 5) == 0:
             save_checkpoint(
                 model, optimizer, scheduler, epoch, best_metric, config,
                 os.path.join(log_cfg["checkpoint_dir"], f"checkpoint_epoch{epoch + 1}.pth"),
             )
 
-        # Save latest checkpoint
         save_checkpoint(
             model, optimizer, scheduler, epoch, best_metric, config,
             os.path.join(log_cfg["checkpoint_dir"], "last.pth"),
         )
 
-        # Early stopping
         if patience_counter >= patience:
-            print(f"\nEarly stopping triggered after {epoch + 1} epochs.")
+            print(f"\nEarly stopping after {epoch + 1} epochs.")
             break
 
-    # Final evaluation with best model
+    # Final evaluation
     print("\n--- Final Evaluation ---")
     best_ckpt = os.path.join(log_cfg["checkpoint_dir"], "best_model.pth")
     if os.path.exists(best_ckpt):
-        checkpoint = torch.load(best_ckpt, map_location=device)
+        checkpoint = torch.load(best_ckpt, map_location=device, weights_only=False)
         model.load_state_dict(checkpoint["model_state_dict"])
 
     val_results = validate(
-        model=model,
-        loader=val_loader,
-        criterion=criterion,
-        device=device,
+        model, val_loader, criterion, device,
         num_classes=dataset_cfg["num_classes"],
     )
 
-    print_metrics_report(val_results["metrics"], dataset_cfg.get("phase_names"))
+    print_metrics_report(
+        val_results["metrics"],
+        dataset_cfg.get("phase_names"),
+    )
 
     if writer:
         writer.close()
 
-    print(f"\nTraining complete. Best Jaccard: {best_metric:.4f}")
+    print(f"\nTraining complete. Best F1: {best_metric:.4f}")
     print(f"Best model saved to: {best_ckpt}")
 
 
