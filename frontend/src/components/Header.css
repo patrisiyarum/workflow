@@ -1,36 +1,22 @@
 .header {
-  background: var(--bg-secondary);
   border-bottom: 1px solid var(--border);
   padding: 0 1.5rem;
-  position: sticky;
-  top: 0;
-  z-index: 100;
-  backdrop-filter: blur(12px);
 }
 
 .header-inner {
-  max-width: 960px;
+  max-width: 640px;
   margin: 0 auto;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: 56px;
-}
-
-.header-brand {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.header-icon {
-  color: var(--accent);
+  height: 48px;
 }
 
 .header-title {
-  font-weight: 700;
-  font-size: 1.1rem;
-  letter-spacing: -0.02em;
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: var(--text-primary);
+  letter-spacing: -0.01em;
 }
 
 .header-nav {
@@ -39,11 +25,10 @@
 }
 
 .header-nav a {
-  color: var(--text-secondary);
-  font-size: 0.875rem;
-  transition: color var(--transition);
+  color: var(--text-muted);
+  font-size: 0.8rem;
 }
 
 .header-nav a:hover {
-  color: var(--text-primary);
+  color: var(--text-secondary);
 }

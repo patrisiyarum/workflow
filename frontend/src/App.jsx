@@ -9,7 +9,6 @@ import { predictImage, predictVideo } from './api';
 import './App.css';
 
 export default function App() {
-  const [mode, setMode] = useState('image'); // 'image' | 'video'
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [imageResult, setImageResult] = useState(null);
@@ -25,15 +24,13 @@ export default function App() {
     const isImage = file.type.startsWith('image/');
 
     if (!isVideo && !isImage) {
-      setError('Please upload an image (JPG, PNG) or video (MP4, AVI) file.');
+      setError('Unsupported file type. Use JPG, PNG, MP4, or AVI.');
       return;
     }
 
     if (isImage) {
-      setMode('image');
       setPreviewUrl(URL.createObjectURL(file));
     } else {
-      setMode('video');
       setPreviewUrl(null);
     }
 
@@ -47,7 +44,7 @@ export default function App() {
         setVideoResult(result);
       }
     } catch (err) {
-      setError(err.message || 'Prediction failed. Is the backend running?');
+      setError(err.message || 'Prediction failed.');
     } finally {
       setLoading(false);
     }
@@ -73,9 +70,8 @@ export default function App() {
               <section className="hero">
                 <h1>Surgery Phase Detection</h1>
                 <p>
-                  Upload an operating room image or video to detect the current
-                  surgical phase using deep learning. Powered by a ResNet + LSTM
-                  architecture trained on the MVOR dataset.
+                  Upload an operating room image or video to identify the
+                  surgical phase using a ResNet + LSTM model.
                 </p>
               </section>
 
@@ -87,8 +83,7 @@ export default function App() {
           {loading && (
             <div className="loading-state">
               <div className="spinner" />
-              <h2>Analyzing...</h2>
-              <p>Running inference through the neural network</p>
+              <p>Analyzing...</p>
             </div>
           )}
 

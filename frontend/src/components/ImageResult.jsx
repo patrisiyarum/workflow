@@ -1,5 +1,5 @@
 import React from 'react';
-import { ArrowLeft, Clock, Zap } from 'lucide-react';
+import { ArrowLeft } from 'lucide-react';
 import './ImageResult.css';
 
 export default function ImageResult({ result, previewUrl, onReset }) {
@@ -8,82 +8,51 @@ export default function ImageResult({ result, previewUrl, onReset }) {
   return (
     <div className="image-result">
       <button className="back-btn" onClick={onReset}>
-        <ArrowLeft size={16} /> Analyze another
+        <ArrowLeft size={14} /> New analysis
       </button>
 
       <div className="result-grid">
-        {/* Image preview */}
         <div className="result-preview">
-          {previewUrl && <img src={previewUrl} alt="Uploaded OR" />}
-          <div className="result-badge" style={{ background: phase.color }}>
+          {previewUrl && <img src={previewUrl} alt="Uploaded" />}
+          <span className="result-badge" style={{ background: phase.color }}>
             {phase.phase_name}
-          </div>
+          </span>
         </div>
 
-        {/* Prediction details */}
         <div className="result-details">
-          <div className="predicted-phase" style={{ borderColor: phase.color }}>
-            <div
-              className="phase-dot"
-              style={{ background: phase.color }}
-            />
-            <div>
-              <h2>{phase.phase_name}</h2>
-              <p className="phase-desc">{phase.description}</p>
-            </div>
+          <div className="result-phase" style={{ borderLeftColor: phase.color }}>
+            <h2>{phase.phase_name}</h2>
+            <p>{phase.description}</p>
           </div>
 
-          <div className="confidence-meter">
-            <div className="confidence-label">
+          <div className="result-confidence">
+            <div className="conf-header">
               <span>Confidence</span>
-              <span className="confidence-value">
-                {(phase.confidence * 100).toFixed(1)}%
-              </span>
+              <span className="conf-value">{(phase.confidence * 100).toFixed(1)}%</span>
             </div>
-            <div className="confidence-bar-bg">
+            <div className="conf-bar">
               <div
-                className="confidence-bar-fill"
-                style={{
-                  width: `${phase.confidence * 100}%`,
-                  background: phase.color,
-                }}
+                className="conf-fill"
+                style={{ width: `${phase.confidence * 100}%`, background: phase.color }}
               />
             </div>
           </div>
 
-          <div className="all-phases">
-            <h4>All Phases</h4>
+          <div className="result-phases">
             {all_phases.map((p) => (
               <div key={p.phase_id} className="phase-row">
-                <div className="phase-row-left">
-                  <div
-                    className="phase-dot-sm"
-                    style={{ background: p.color }}
-                  />
-                  <span>{p.phase_name}</span>
+                <div className="phase-row-name">
+                  <span className="dot" style={{ background: p.color }} />
+                  {p.phase_name}
                 </div>
-                <div className="phase-row-right">
-                  <div className="mini-bar-bg">
-                    <div
-                      className="mini-bar-fill"
-                      style={{
-                        width: `${p.confidence * 100}%`,
-                        background: p.color,
-                      }}
-                    />
-                  </div>
-                  <span className="phase-pct">
-                    {(p.confidence * 100).toFixed(1)}%
-                  </span>
-                </div>
+                <span className="phase-row-pct">
+                  {(p.confidence * 100).toFixed(1)}%
+                </span>
               </div>
             ))}
           </div>
 
-          <div className="meta-row">
-            <span><Clock size={14} /> {inference_time_ms.toFixed(0)} ms</span>
-            <span><Zap size={14} /> ResNet + LSTM</span>
-          </div>
+          <span className="result-meta">{inference_time_ms.toFixed(0)} ms</span>
         </div>
       </div>
     </div>

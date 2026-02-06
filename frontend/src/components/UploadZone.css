@@ -1,57 +1,38 @@
 .upload-zone {
-  border: 2px dashed var(--border);
+  border: 1px dashed #2a2a2a;
   border-radius: var(--radius);
-  padding: 3rem 2rem;
+  padding: 2.5rem 1.5rem;
   text-align: center;
   cursor: pointer;
-  transition: all var(--transition);
-  background: var(--bg-secondary);
-  margin-bottom: 2.5rem;
+  transition: border-color 0.15s, background 0.15s;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
 }
 
 .upload-zone:hover,
 .upload-zone.drag-active {
-  border-color: var(--accent);
-  background: rgba(59, 130, 246, 0.06);
+  border-color: #333;
+  background: var(--bg-surface);
 }
 
-.upload-icon-group {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.75rem;
-  margin-bottom: 1rem;
+.upload-icon {
   color: var(--text-muted);
+  margin-bottom: 0.25rem;
 }
 
-.upload-icon-main {
-  color: var(--accent);
-}
-
-.upload-zone h3 {
-  font-size: 1.1rem;
-  font-weight: 600;
-  margin-bottom: 0.35rem;
-}
-
-.upload-zone p {
+.upload-text {
+  font-size: 0.875rem;
   color: var(--text-secondary);
-  font-size: 0.9rem;
 }
 
-.upload-badges {
-  display: flex;
-  justify-content: center;
-  gap: 0.5rem;
-  margin-top: 1rem;
-}
-
-.badge {
-  background: rgba(59, 130, 246, 0.12);
+.upload-link {
   color: var(--accent);
+  cursor: pointer;
+}
+
+.upload-hint {
   font-size: 0.75rem;
-  font-weight: 500;
-  padding: 0.25rem 0.75rem;
-  border-radius: 100px;
-  border: 1px solid rgba(59, 130, 246, 0.2);
+  color: var(--text-muted);
 }
