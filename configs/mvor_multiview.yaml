@@ -1,0 +1,88 @@
+# Multi-View MVOR Configuration
+# ================================
+# Configuration for the multi-view fusion model using all 3 MVOR cameras.
+
+dataset:
+  name: mvor
+  data_root: data/mvor/
+  annotation_path: data/mvor/annotations/camma_mvor_2018.json
+  images_dir: data/mvor/camma_mvor_dataset/
+  num_classes: 4
+  phase_names:
+    - "Idle/Empty"
+    - "Preparation"
+    - "Procedure Active"
+    - "Closure/Cleanup"
+  train_days: [2, 3]
+  val_days: [4]
+  test_days: [1]
+  camera_ids: [1, 2, 3]
+  primary_camera: 1
+
+phase_labeler:
+  num_clinician_threshold: 2
+  temporal_smooth_window: 3
+  use_temporal_context: true
+
+model:
+  type: multi_view
+  backbone: resnet50
+  pretrained: true
+  feature_dim: 2048
+  lstm_hidden: 512
+  lstm_layers: 2
+  dropout: 0.3
+  sequence_length: 5
+  bidirectional: false
+  freeze_backbone_epochs: 3
+  num_views: 3
+  fusion: attention
+
+training:
+  batch_size: 2             # Smaller batch for multi-view (3x memory)
+  learning_rate: 0.0001
+  weight_decay: 0.00001
+  epochs: 30
+  early_stopping_patience: 8
+  scheduler: cosine
+  scheduler_params:
+    T_max: 30
+  class_weights: auto
+  gradient_clip: 1.0
+  num_workers: 2
+  pin_memory: true
+  mixed_precision: true
+
+preprocessing:
+  image_size: 224
+  mean: [0.485, 0.456, 0.406]
+  std: [0.229, 0.224, 0.225]
+
+augmentation:
+  enabled: true
+  horizontal_flip: 0.5
+  brightness: 0.3
+  contrast: 0.3
+  saturation: 0.2
+  hue: 0.05
+  rotation: 15
+  random_crop: true
+  color_jitter: true
+
+logging:
+  log_dir: logs/
+  checkpoint_dir: checkpoints/
+  save_every: 5
+  log_every: 10
+  tensorboard: true
+  experiment_name: mvor_multiview_phase_detection
+
+evaluation:
+  metrics:
+    - accuracy
+    - precision
+    - recall
+    - f1
+    - jaccard
+    - confusion_matrix
+  per_class: true

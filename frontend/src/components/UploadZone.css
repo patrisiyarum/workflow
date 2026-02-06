@@ -1,0 +1,57 @@
+.upload-zone {
+  border: 2px dashed var(--border);
+  border-radius: var(--radius);
+  padding: 3rem 2rem;
+  text-align: center;
+  cursor: pointer;
+  transition: all var(--transition);
+  background: var(--bg-secondary);
+  margin-bottom: 2.5rem;
+}
+
+.upload-zone:hover,
+.upload-zone.drag-active {
+  border-color: var(--accent);
+  background: rgba(59, 130, 246, 0.06);
+}
+
+.upload-icon-group {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+  color: var(--text-muted);
+}
+
+.upload-icon-main {
+  color: var(--accent);
+}
+
+.upload-zone h3 {
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin-bottom: 0.35rem;
+}
+
+.upload-zone p {
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+}
+
+.upload-badges {
+  display: flex;
+  justify-content: center;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+.badge {
+  background: rgba(59, 130, 246, 0.12);
+  color: var(--accent);
+  font-size: 0.75rem;
+  font-weight: 500;
+  padding: 0.25rem 0.75rem;
+  border-radius: 100px;
+  border: 1px solid rgba(59, 130, 246, 0.2);
+}

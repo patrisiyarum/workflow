@@ -1,0 +1,49 @@
+# Render Blueprint — Surgery Phase Detection
+# =============================================
+# Deploy both frontend (static site) and backend (web service).
+#
+# Usage:
+#   1. Push this repo to GitHub
+#   2. On Render Dashboard: New > Blueprint > connect your repo
+#   3. Render auto-detects this file and deploys both services
+#
+# Docs: https://render.com/docs/blueprint-spec
+
+services:
+  # ---- Backend API (FastAPI + PyTorch) ----
+  - type: web
+    name: surgphase-api
+    runtime: python
+    plan: free
+    rootDir: .
+    buildCommand: |
+      pip install -r backend/requirements.txt
+    startCommand: |
+      cd backend && uvicorn app:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11"
+      - key: MODEL_CHECKPOINT
+        value: "checkpoints/best_model.pth"
+    healthCheckPath: /api/health
+
+  # ---- Frontend (React static site) ----
+  - type: web
+    name: surgphase-ui
+    runtime: static
+    rootDir: frontend
+    buildCommand: npm install && npm run build
+    staticPublishPath: dist
+    headers:
+      - path: /*
+        name: Cache-Control
+        value: public, max-age=3600
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      - key: VITE_API_URL
+        # Set this to your backend URL after first deploy, e.g.:
+        # https://surgphase-api.onrender.com
+        value: ""

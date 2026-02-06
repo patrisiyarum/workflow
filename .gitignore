@@ -1,0 +1,45 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environments
+venv/
+env/
+.venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project-specific — dataset, model outputs
+/data/
+checkpoints/
+logs/
+results/
+*.npy
+*.npz
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Tensorboard
+events.out.tfevents.*
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+
+# Environment
+.env
+.env.local
